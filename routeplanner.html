@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Planer Trasy – Pełna Analiza Krajów</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+    #panel { padding: 10px; background: #f1f1f1; display: flex; flex-wrap: wrap; align-items: center; }
+    #panel input, #panel button { padding: 8px; margin: 5px; }
+    #countryList { margin-top: 10px; flex-basis: 100%; }
+    #map { height: 500px; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <input id="start" type="text" placeholder="Punkt początkowy">
+    <input id="end" type="text" placeholder="Punkt końcowy">
+    <button id="routeButton">Wyznacz trasę</button>
+    <button id="resetButton">Reset</button>
+    <div id="countryList"></div>
+  </div>
+  <div id="map"></div>
+  
+  <script>
+    let map, directionsService, directionsRenderer, geocoder;
+
+    const vignetteCountries = {
+      "AT": { name: "Austria", link: "https://vignetteoesterreich.eu/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/at.png" },
+      "CZ": { name: "Czechia", link: "https://vignetteczech.eu/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/cz.png" },
+      "SI": { name: "Slovenia", link: "https://vignetteslovenia.eu/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/si.png" },
+      "SK": { name: "Slovakia", link: "https://slovakiavignette.eu/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/sk.png" },
+      "HU": { name: "Hungary", link: "https://vignettehungary.eu/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/hu.png" },
+      "CH": { name: "Switzerland", link: "https://vignette-schweiz.com/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/ch.png" },
+      "RO": { name: "Romania", link: "https://vignetteromania.eu/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/ro.png" },
+      "BG": { name: "Bulgaria", link: "https://bulgariavignette.eu/en/get-vignette/#step-0", flag: "https://flagcdn.com/w40/bg.png" }
+    };
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 48.2082, lng: 16.3738 },
+        zoom: 6,
+      });
+      directionsService = new google.maps.DirectionsService();
+      directionsRenderer = new google.maps.DirectionsRenderer({ draggable: true });
+      directionsRenderer.setMap(map);
+      geocoder = new google.maps.Geocoder();
+
+      document.getElementById("routeButton").addEventListener("click", calculateRoute);
+      document.getElementById("resetButton").addEventListener("click", resetRoute);
+
+      directionsRenderer.addListener('directions_changed', function() {
+        const directions = directionsRenderer.getDirections();
+        if (directions) {
+          processRoute(directions.routes[0]);
+        }
+      });
+    }
+
+    function calculateRoute() {
+      const start = document.getElementById("start").value;
+      const end = document.getElementById("end").value;
+      
+      if (!start || !end) {
+        alert("Podaj oba punkty!");
+        return;
+      }
+      
+      const request = {
+        origin: start,
+        destination: end,
+        travelMode: google.maps.TravelMode.DRIVING
+      };
+      
+      directionsService.route(request, function(result, status) {
+        if (status === google.maps.DirectionsStatus.OK) {
+          directionsRenderer.setDirections(result);
+          processRoute(result.routes[0]);
+        } else {
+          alert("Błąd wyznaczania trasy: " + status);
+        }
+      });
+    }
+
+    function processRoute(route) {
+      let countriesDetected = new Set();
+      let locations = [];
+
+      // Pobranie punktów startowego i końcowego
+      locations.push(route.legs[0].start_location);
+      locations.push(route.legs[route.legs.length - 1].end_location);
+
+      // Pobranie punktów pośrednich
+      route.legs.forEach(function(leg) {
+        leg.steps.forEach(function(step, index) {
+          if (index % 3 === 0) {  // Pobieranie co 3. punktu na trasie dla optymalizacji
+            locations.push(step.end_location);
+          }
+        });
+      });
+
+      getCountryFromLocations(locations, countriesDetected);
+    }
+
+    function getCountryFromLocations(locations, countriesDetected) {
+      let pending = locations.length;
+      let previousCountry = null;
+
+      locations.forEach(function(location) {
+        geocoder.geocode({ 'location': location }, function(results, status) {
+          if (status === 'OK' && results[0]) {
+            let countryCode = null;
+            results[0].address_components.forEach(function(component) {
+              if (component.types.includes("country")) {
+                countryCode = component.short_name; // Pobranie kodu kraju
+              }
+            });
+
+            if (countryCode && countryCode !== previousCountry) {
+              countriesDetected.add(countryCode);
+              previousCountry = countryCode;
+            }
+          }
+          pending--;
+          if (pending === 0) {
+            displayCountries(countriesDetected);
+          }
+        });
+      });
+    }
+
+    function displayCountries(countriesSet) {
+      const outputDiv = document.getElementById("countryList");
+      outputDiv.innerHTML = "<h3>Kraje wymagające winiet:</h3>";
+      let found = false;
+      countriesSet.forEach(function(countryCode) {
+        if (vignetteCountries.hasOwnProperty(countryCode)) {
+          found = true;
+          const countryInfo = vignetteCountries[countryCode];
+          const flagImg = document.createElement("img");
+          flagImg.src = countryInfo.flag;
+          flagImg.alt = countryInfo.name;
+          flagImg.style.marginRight = "10px";
+
+          const link = document.createElement("a");
+          link.href = countryInfo.link;
+          link.target = "_blank";
+          link.textContent = countryInfo.name;
+
+          const div = document.createElement("div");
+          div.style.display = "flex";
+          div.style.alignItems = "center";
+          div.appendChild(flagImg);
+          div.appendChild(link);
+
+          outputDiv.appendChild(div);
+          outputDiv.appendChild(document.createElement("br"));
+        }
+      });
+      if (!found) {
+        outputDiv.innerHTML += "<p>Brak krajów wymagających winiety na trasie.</p>";
+      }
+    }
+
+    function resetRoute() {
+      document.getElementById("start").value = "";
+      document.getElementById("end").value = "";
+      document.getElementById("countryList").innerHTML = "";
+      directionsRenderer.set('directions', null);
+    }
+  </script>
+  <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyATWa6Y1GUEKXTV4DCKTrMDtBrRSOvXxbY&libraries=geometry&callback=initMap"></script>
+</body>
+</html>
